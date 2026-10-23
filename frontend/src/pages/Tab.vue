@@ -20,6 +20,7 @@ import { isLoggedIn } from "../auth-client.js";
 import { getKeySignature } from "../util.ts";
 import { countIn } from "../count-in.ts";
 import { setupSelection } from "../selection.ts";
+import { setNoteNames } from "../note-names.ts";
 
 const alphaTab = await import("@coderline/alphatab");
 const { ScrollMode, StaveProfile } = alphaTab;
@@ -117,6 +118,15 @@ export default defineComponent({
     computed: {
         animatedCursor() {
             return this.setting.cursor === "animated" || this.setting.scrollMode === ScrollMode.Smooth;
+        },
+
+        // Quick view toggles, derived from the Style setting ("auto" counts as tab)
+        viewTab() {
+            return this.setting.scoreStyle !== "score";
+        },
+
+        viewNotes() {
+            return this.setting.scoreStyle === "score" || this.setting.scoreStyle === "score-tab";
         },
 
         syncMethod() {
@@ -893,6 +903,7 @@ export default defineComponent({
                     } else {
                         // This will break drum score
                         this.overrideHiddenStaves(score);
+                        this.applyNoteNames(score);
                     }
 
                     this.api.renderTracks([this.api.score.tracks[trackID]]);
@@ -1086,6 +1097,56 @@ export default defineComponent({
                     }
                 }
             }
+        },
+
+        applyNoteNames(score) {
+            for (const track of score.tracks) {
+                setNoteNames(track, this.setting.noteNames);
+            }
+        },
+
+        /**
+         * Toolbar TAB / NOTES / A B C toggles. Writes the result back into the Style and
+         * Note Names settings so the Settings page stays in sync.
+         * - At least one of TAB / NOTES stays on
+         * - Note names are drawn on the tab staff, so A B C turns TAB on
+         * - Horizontal Tab is kept while the tab staff is the only one shown
+         */
+        toggleView(key) {
+            let tab = this.viewTab;
+            let notes = this.viewNotes;
+            if (key === "tab") {
+                tab = !tab;
+            } else if (key === "notes") {
+                notes = !notes;
+            } else if (key === "abc") {
+                this.setting.noteNames = !this.setting.noteNames;
+            }
+            if (!tab && !notes) {
+                notes = true;
+            }
+            if (this.setting.noteNames && !tab) {
+                tab = true;
+            }
+
+            if (tab && notes) {
+                this.setting.scoreStyle = "score-tab";
+            } else if (notes) {
+                this.setting.scoreStyle = "score";
+            } else if (this.setting.scoreStyle !== "horizontal-tab") {
+                this.setting.scoreStyle = "tab";
+            }
+            localStorage.setItem("userSetting", JSON.stringify(this.setting));
+
+            const score = this.api?.score;
+            if (!score || this.isDrum()) {
+                return;
+            }
+            this.overrideHiddenStaves(score);
+            this.applyNoteNames(score);
+            this.api.settings.display.staveProfile = this.getStaveProfile();
+            this.api.updateSettings();
+            this.api.render();
         },
 
         async initSocketIO() {
@@ -1808,6 +1869,12 @@ export default defineComponent({
                     Metronome
                 </button>
 
+                <div class="view-toggles" v-if="!isDrum()">
+                    <button class="btn btn-secondary" @click='toggleView("tab")' :class="{ active: viewTab }" title="Tablature">TAB</button>
+                    <button class="btn btn-secondary" @click='toggleView("notes")' :class="{ active: viewNotes }" title="Standard notation">NOTES</button>
+                    <button class="btn btn-secondary" @click='toggleView("abc")' :class="{ active: setting.noteNames }" title="Letter note names (shown on the tab staff)">A B C</button>
+                </div>
+
                 <div class="select-percentage">
                     Speed: <input type="number" class="form-control" min="0" max="1000" step="1" v-model="speed" /> (%)
                 </div>
@@ -1951,6 +2018,12 @@ $youtube-height: 200px;
         .btn-edit {
             flex-grow: 1;
             text-align: right;
+        }
+
+        .view-toggles {
+            display: flex;
+            column-gap: 4px;
+            white-space: nowrap;
         }
 
         .button,

@@ -5,6 +5,8 @@ export const SettingSchema = z.object({
     scoreStyle: z.enum(["tab", "score-tab", "score", "auto", "horizontal-tab"]).default("tab"),
     scoreColor: z.enum(["light", "dark"]).default("dark"),
     noteColor: z.enum(["rocksmith", "louis-bass-v", "none"]).default("rocksmith"),
+    // Letter note names (A, C#, …) under each beat; drawn on the tab staff
+    noteNames: z.boolean().default(false),
     cursor: z.enum(["animated", "instant", "bar", "invisible"]).default(
         "animated",
     ),

@@ -15,6 +15,7 @@ export default defineComponent({
             setting: {
                 scoreColor: "",
                 noteColor: "",
+                noteNames: false,
                 cursor: "",
                 scoreStyle: "",
                 groupByArtist: false,
@@ -134,6 +135,15 @@ export default defineComponent({
                 <option value="score">Score</option>
                 <option value="score-tab">Tab + Score</option>
                 <option value="horizontal-tab">Horizontal Tab</option>
+            </select>
+        </div>
+
+        <!-- Note Names -->
+        <div class="mb-3">
+            <label for="noteNames" class="form-label">Note Names (A B C)</label>
+            <select id="noteNames" class="form-select" v-model="setting.noteNames">
+                <option :value="false">Hide</option>
+                <option :value="true">Show (needs a Tab style)</option>
             </select>
         </div>
 
