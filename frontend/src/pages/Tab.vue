@@ -943,11 +943,22 @@ export default defineComponent({
 
                     this.tracks = [];
 
+                    // A short name shared by every track is an exporter placeholder
+                    // (Songsterr exports all tracks as "s.guit."), so it can't tell tracks apart
+                    const shortNames = score.tracks.map((track) => (track.shortName ?? "").trim());
+                    const placeholderShortName = score.tracks.length > 1 && shortNames.every((s) => s === shortNames[0]) ? shortNames[0] : null;
+
                     // List all tracks
                     score.tracks.forEach((track) => {
                         let name = (track.name ?? "").trim();
                         if (!name) {
                             name = (track.shortName ?? "").trim();
+                            if (name === placeholderShortName) {
+                                name = "";
+                            }
+                        }
+                        if (!name && track.staves.some((staff) => staff.isPercussion)) {
+                            name = "Drums";
                         }
                         if (!name) {
                             name = getInstrumentName(track.playbackInfo.program);
