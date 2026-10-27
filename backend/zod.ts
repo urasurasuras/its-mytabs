@@ -64,6 +64,10 @@ export const SyncRequestSchema = z.object({
 });
 export type SyncRequest = z.infer<typeof SyncRequestSchema>;
 
+export const SongsterrInfoRequestSchema = z.object({
+    url: z.string().min(1),
+});
+
 export const AudioDataSchema = z.object({
     filename: z.string().min(1),
     syncMethod: syncMethod.default("simple"),

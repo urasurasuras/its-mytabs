@@ -5,6 +5,7 @@ import "@jaxtheprime/vue3-dropzone/dist/style.css";
 import { notify } from "@kyvg/vue3-notification";
 import { baseURL } from "../app.js";
 import { supportedFormatCommaString } from "../../../backend/common.js";
+import { toAdvancedSync } from "../../../backend/play_order.js";
 
 const alphaTab = await import("@coderline/alphatab");
 
@@ -15,6 +16,7 @@ export default defineComponent({
             files: [],
             supportedFormatCommaString,
             isUploading: false,
+            songsterrURL: "",
         };
     },
     methods: {
@@ -73,6 +75,86 @@ export default defineComponent({
             // Reset Dropzone
             this.isUploading = false;
         },
+        async postJSON(url, body) {
+            const res = await fetch(baseURL + url, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.msg || "Request failed");
+            }
+            return data;
+        },
+
+        async importSongsterr() {
+            if (!this.songsterrURL.trim()) {
+                notify({ text: "Please paste a Songsterr link", type: "error" });
+                return;
+            }
+
+            this.isUploading = true;
+            try {
+                const { song } = await this.postJSON("/api/songsterr/info", { url: this.songsterrURL });
+                if (!song.hasGp) {
+                    throw new Error("This Songsterr tab has no Guitar Pro file to import");
+                }
+
+                const gpRes = await fetch(baseURL + `/api/songsterr/gp/${song.revisionID}`, {
+                    credentials: "include",
+                });
+                if (!gpRes.ok) {
+                    const err = await gpRes.json().catch(() => ({}));
+                    throw new Error(err.msg || "Failed to download the Guitar Pro file");
+                }
+                const data = new Uint8Array(await gpRes.arrayBuffer());
+
+                // Make sure AlphaTab can read it, and get the bars for the video sync
+                const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(data, new alphaTab.Settings());
+
+                const formData = new FormData();
+                formData.append("file", new File([data], `songsterr-${song.songID}.gp`));
+                formData.append("title", song.title || score.title);
+                formData.append("artist", song.artist || score.artist);
+
+                const res = await fetch(baseURL + "/api/new-tab", {
+                    method: "POST",
+                    credentials: "include",
+                    body: formData,
+                });
+                const respData = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(respData.msg || "Upload failed");
+                }
+                const id = respData.id;
+
+                // Songsterr's synced YouTube video, if any. The tab is kept even if this fails.
+                if (song.video) {
+                    try {
+                        const videoID = song.video.videoID;
+                        await this.postJSON(`/api/tab/${id}/youtube`, { videoID });
+                        await this.postJSON(`/api/tab/${id}/youtube/${videoID}`, {
+                            syncMethod: "advanced",
+                            simpleSync: 0,
+                            advancedSync: toAdvancedSync(score.masterBars, song.video.points),
+                        });
+                    } catch (e) {
+                        notify({ text: `Tab imported, but adding the YouTube video failed: ${e.message}`, type: "warn" });
+                    }
+                }
+
+                notify({ text: `Imported: ${song.artist} - ${song.title}`, type: "success" });
+                this.songsterrURL = "";
+                this.$router.push(`/tab/${id}`);
+            } catch (e) {
+                notify({ text: e.message || "Unknown error", type: "error" });
+            } finally {
+                this.isUploading = false;
+            }
+        },
+
         dropzoneError(err) {
             console.log(err);
             notify({ text: err.type || "Dropzone error", type: "error" });
@@ -128,6 +210,18 @@ export default defineComponent({
         >
             {{ isUploading ? "Uploading..." : "Upload" }}
         </button>
+
+        <form class="input-group mt-4" @submit.prevent="importSongsterr">
+            <input
+                v-model="songsterrURL"
+                type="text"
+                class="form-control"
+                placeholder="Songsterr link, e.g. https://www.songsterr.com/a/wsa/...-tab-s12345"
+                :disabled="isUploading"
+            />
+            <button type="submit" class="btn btn-secondary" :disabled="isUploading">Import from Songsterr</button>
+        </form>
+        <div class="form-text">Also adds Songsterr's synced YouTube video, if there is one.</div>
 
         <ul class="mt-3">
             <li>

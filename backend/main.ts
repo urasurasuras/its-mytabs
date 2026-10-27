@@ -2,7 +2,7 @@ import { serve, ServerType } from "@hono/node-server";
 import { Context, Hono } from "@hono/hono";
 import * as fs from "@std/fs";
 import { auth, checkLogin, getCurrentSession, isFinishSetup, isLoggedIn } from "./auth.ts";
-import { SignUpSchema, SyncRequestSchema, UpdateTabFavSchema, UpdateTabInfoSchema, YoutubeAddDataSchema } from "./zod.ts";
+import { SignUpSchema, SongsterrInfoRequestSchema, SyncRequestSchema, UpdateTabFavSchema, UpdateTabInfoSchema, YoutubeAddDataSchema } from "./zod.ts";
 import { db, hasUser, isInitDB, kv, migrate } from "./db.ts";
 import { cors } from "@hono/hono/cors";
 import { serveStatic } from "@hono/hono/deno";
@@ -37,6 +37,7 @@ import sanitize from "sanitize-filename";
 import "@std/dotenv/load";
 import { socketIO } from "./socket.ts";
 import * as cheerio from "cheerio";
+import { getSongsterrGp, getSongsterrSong, parseSongsterrSongID } from "./songsterr.ts";
 import { getSeparateJob, isModelInstalled, isOrtInstalled, isSeparateBusy, startMute, startSeparate } from "./separate.ts";
 
 let httpServer: ServerType;
@@ -235,6 +236,45 @@ export async function main() {
             return c.json({
                 ok: true,
                 id,
+            });
+        } catch (e) {
+            return generalError(c, e);
+        }
+    });
+
+    // Songsterr song info (POST /api/songsterr/info)
+    // The browser cannot call Songsterr directly (CORS), so the backend fetches it
+    app.post("/api/songsterr/info", async (c) => {
+        try {
+            await checkLogin(c);
+
+            const body = await c.req.json();
+            const data = SongsterrInfoRequestSchema.parse(body);
+            const songID = parseSongsterrSongID(data.url);
+            const song = await getSongsterrSong(songID);
+
+            return c.json({
+                ok: true,
+                song,
+            });
+        } catch (e) {
+            return generalError(c, e);
+        }
+    });
+
+    // Songsterr Guitar Pro file (GET /api/songsterr/gp/${revisionID})
+    app.get("/api/songsterr/gp/:revisionID", async (c) => {
+        try {
+            await checkLogin(c);
+
+            const revisionID = Number(c.req.param("revisionID"));
+            if (!Number.isInteger(revisionID) || revisionID <= 0) {
+                throw new Error("Invalid revision ID");
+            }
+
+            const bytes = await getSongsterrGp(revisionID);
+            return c.body(bytes, 200, {
+                "Content-Type": "application/octet-stream",
             });
         } catch (e) {
             return generalError(c, e);
