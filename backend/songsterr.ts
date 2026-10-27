@@ -3,6 +3,8 @@
 
 const site = "https://www.songsterr.com";
 const gpHost = "gp.songsterr.com";
+// Per-track note data (gzipped JSON), used when a revision has no Guitar Pro file
+const trackHost = "https://dqsljvtekg760.cloudfront.net";
 
 export interface SongsterrVideo {
     videoID: string;
@@ -133,4 +135,36 @@ export async function getSongsterrGp(revisionID: number): Promise<Uint8Array<Arr
 
     const res = await songsterrFetch(url.toString());
     return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * Get the note data of every track of a revision, for revisions without a Guitar Pro file.
+ * The frontend converts it into a score (see frontend/src/songsterr.ts).
+ */
+export async function getSongsterrTracks(revisionID: number): Promise<unknown[]> {
+    const revision = await getRevision(revisionID);
+    const songID = Number(revision?.songId);
+    const image = revision?.image;
+    const trackCount = Array.isArray(revision?.tracks) ? revision.tracks.length : 0;
+
+    if (!songID || typeof image !== "string" || !/^[\w-]+$/.test(image) || trackCount === 0) {
+        throw new Error("This Songsterr revision has no track data");
+    }
+
+    const tracks = [];
+    for (let i = 0; i < trackCount; i++) {
+        const res = await songsterrFetch(`${trackHost}/${songID}/${revisionID}/${image}/${i}.json`);
+        tracks.push(await readMaybeGzippedJSON(res));
+    }
+    return tracks;
+}
+
+// The track files are stored gzipped, but not always served with a Content-Encoding header
+async function readMaybeGzippedJSON(res: Response) {
+    let bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+        bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+    return JSON.parse(new TextDecoder().decode(bytes));
 }

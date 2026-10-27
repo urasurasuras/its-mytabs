@@ -6,6 +6,7 @@ import { notify } from "@kyvg/vue3-notification";
 import { baseURL } from "../app.js";
 import { supportedFormatCommaString } from "../../../backend/common.js";
 import { toAdvancedSync } from "../../../backend/play_order.js";
+import { scoreToGp, songsterrToScore } from "../songsterr.js";
 
 const alphaTab = await import("@coderline/alphatab");
 
@@ -98,18 +99,28 @@ export default defineComponent({
             this.isUploading = true;
             try {
                 const { song } = await this.postJSON("/api/songsterr/info", { url: this.songsterrURL });
-                if (!song.hasGp) {
-                    throw new Error("This Songsterr tab has no Guitar Pro file to import");
-                }
 
-                const gpRes = await fetch(baseURL + `/api/songsterr/gp/${song.revisionID}`, {
-                    credentials: "include",
-                });
-                if (!gpRes.ok) {
-                    const err = await gpRes.json().catch(() => ({}));
-                    throw new Error(err.msg || "Failed to download the Guitar Pro file");
+                let data;
+                if (song.hasGp) {
+                    const gpRes = await fetch(baseURL + `/api/songsterr/gp/${song.revisionID}`, {
+                        credentials: "include",
+                    });
+                    if (!gpRes.ok) {
+                        const err = await gpRes.json().catch(() => ({}));
+                        throw new Error(err.msg || "Failed to download the Guitar Pro file");
+                    }
+                    data = new Uint8Array(await gpRes.arrayBuffer());
+                } else {
+                    // Most Songsterr tabs have no Guitar Pro file, build one from the track data
+                    const tracksRes = await fetch(baseURL + `/api/songsterr/tracks/${song.revisionID}`, {
+                        credentials: "include",
+                    });
+                    const tracksData = await tracksRes.json().catch(() => ({}));
+                    if (!tracksRes.ok) {
+                        throw new Error(tracksData.msg || "Failed to download the Songsterr tracks");
+                    }
+                    data = scoreToGp(songsterrToScore(song, tracksData.tracks));
                 }
-                const data = new Uint8Array(await gpRes.arrayBuffer());
 
                 // Make sure AlphaTab can read it, and get the bars for the video sync
                 const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(data, new alphaTab.Settings());

@@ -37,7 +37,7 @@ import sanitize from "sanitize-filename";
 import "@std/dotenv/load";
 import { socketIO } from "./socket.ts";
 import * as cheerio from "cheerio";
-import { getSongsterrGp, getSongsterrSong, parseSongsterrSongID } from "./songsterr.ts";
+import { getSongsterrGp, getSongsterrSong, getSongsterrTracks, parseSongsterrSongID } from "./songsterr.ts";
 import { getSeparateJob, isModelInstalled, isOrtInstalled, isSeparateBusy, startMute, startSeparate } from "./separate.ts";
 
 let httpServer: ServerType;
@@ -275,6 +275,25 @@ export async function main() {
             const bytes = await getSongsterrGp(revisionID);
             return c.body(bytes, 200, {
                 "Content-Type": "application/octet-stream",
+            });
+        } catch (e) {
+            return generalError(c, e);
+        }
+    });
+
+    // Songsterr track note data, for revisions without a Guitar Pro file (GET /api/songsterr/tracks/${revisionID})
+    app.get("/api/songsterr/tracks/:revisionID", async (c) => {
+        try {
+            await checkLogin(c);
+
+            const revisionID = Number(c.req.param("revisionID"));
+            if (!Number.isInteger(revisionID) || revisionID <= 0) {
+                throw new Error("Invalid revision ID");
+            }
+
+            return c.json({
+                ok: true,
+                tracks: await getSongsterrTracks(revisionID),
             });
         } catch (e) {
             return generalError(c, e);
