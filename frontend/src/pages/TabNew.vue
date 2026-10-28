@@ -5,7 +5,7 @@ import "@jaxtheprime/vue3-dropzone/dist/style.css";
 import { notify } from "@kyvg/vue3-notification";
 import { baseURL } from "../app.js";
 import { supportedFormatCommaString } from "../../../backend/common.js";
-import { toAdvancedSync } from "../../../backend/play_order.js";
+import { pickVideo, playOrder, toAdvancedSync } from "../../../backend/play_order.js";
 import { scoreToGp, songsterrToScore } from "../songsterr.js";
 
 const alphaTab = await import("@coderline/alphatab");
@@ -142,15 +142,19 @@ export default defineComponent({
                 const id = respData.id;
 
                 // Songsterr's synced YouTube video, if any. The tab is kept even if this fails.
-                if (song.video) {
+                const picked = pickVideo(song.videos, playOrder(score.masterBars).length);
+                if (picked) {
                     try {
-                        const videoID = song.video.videoID;
+                        const videoID = picked.video.videoID;
                         await this.postJSON(`/api/tab/${id}/youtube`, { videoID });
                         await this.postJSON(`/api/tab/${id}/youtube/${videoID}`, {
                             syncMethod: "advanced",
                             simpleSync: 0,
-                            advancedSync: toAdvancedSync(score.masterBars, song.video.points),
+                            advancedSync: toAdvancedSync(score.masterBars, picked.video.points),
                         });
+                        if (!picked.exact) {
+                            notify({ text: "No Songsterr video matches this tab's bars exactly, so the YouTube sync may drift. Check it in Advanced Sync.", type: "warn" });
+                        }
                     } catch (e) {
                         notify({ text: `Tab imported, but adding the YouTube video failed: ${e.message}`, type: "warn" });
                     }

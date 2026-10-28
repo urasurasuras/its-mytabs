@@ -75,3 +75,32 @@ export function toAdvancedSync(bars: RepeatInfo[], points: number[]): string {
 
     return lines.join("\n");
 }
+
+export interface SyncedVideo {
+    points: number[];
+    feature: string | null;
+}
+
+/**
+ * Pick the video whose timestamps fit the score: one point per played bar.
+ * Songsterr keeps videos synced to older revisions, whose bar count can differ; using one of
+ * those drifts by the missing bars. Among fitting videos the main one (feature null) wins.
+ * If none fits, returns the closest one with exact = false, so the caller can warn.
+ */
+export function pickVideo<T extends SyncedVideo>(videos: T[], playedBars: number): { video: T; exact: boolean } | null {
+    if (videos.length === 0) {
+        return null;
+    }
+    // A trailing end-of-song point is fine, toAdvancedSync ignores it
+    const fits = (v: T) => v.points.length === playedBars || v.points.length === playedBars + 1;
+    const mainFirst = (a: T, b: T) => Number(a.feature !== null) - Number(b.feature !== null);
+
+    const fitting = videos.filter(fits).sort(mainFirst);
+    if (fitting.length > 0) {
+        return { video: fitting[0], exact: true };
+    }
+
+    const distance = (v: T) => Math.abs(v.points.length - playedBars);
+    const closest = [...videos].sort((a, b) => distance(a) - distance(b) || mainFirst(a, b));
+    return { video: closest[0], exact: false };
+}

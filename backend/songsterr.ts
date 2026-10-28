@@ -10,6 +10,8 @@ export interface SongsterrVideo {
     videoID: string;
     // Seconds, one per played bar start (repeats unrolled)
     points: number[];
+    // null = the song's main video; otherwise "alternative" (cover), "backing", "solo", ...
+    feature: string | null;
 }
 
 export interface SongsterrSong {
@@ -18,7 +20,8 @@ export interface SongsterrSong {
     title: string;
     artist: string;
     hasGp: boolean;
-    video: SongsterrVideo | null;
+    // Every synced video Songsterr has, in its order. Pick one with pickVideo().
+    videos: SongsterrVideo[];
 }
 
 /**
@@ -71,26 +74,33 @@ async function getRevision(revisionID: number) {
     return await res.json();
 }
 
-async function getVideo(songID: number, revisionID: number): Promise<SongsterrVideo | null> {
+async function getVideos(songID: number, revisionID: number): Promise<SongsterrVideo[]> {
     try {
         const res = await songsterrFetch(`${site}/api/video-points/${songID}/${revisionID}/list`);
         const list = await res.json();
         if (!Array.isArray(list)) {
-            return null;
+            return [];
         }
-        // deno-lint-ignore no-explicit-any
-        const video = list.find((v: any) => v.status === "done" && typeof v.videoId === "string" && Array.isArray(v.points) && v.points.length > 0);
-        if (!video) {
-            return null;
+        const videos: SongsterrVideo[] = [];
+        for (const v of list) {
+            if (v?.status !== "done" || typeof v.videoId !== "string" || !Array.isArray(v.points) || v.points.length === 0) {
+                continue;
+            }
+            // The list often has the same video twice
+            if (videos.some((x) => x.videoID === v.videoId)) {
+                continue;
+            }
+            videos.push({
+                videoID: v.videoId,
+                points: v.points.map(Number),
+                feature: typeof v.feature === "string" ? v.feature : null,
+            });
         }
-        return {
-            videoID: video.videoId,
-            points: video.points.map(Number),
-        };
+        return videos;
     } catch (e) {
         // Video sync is optional, the tab can still be imported without it
         console.warn("Songsterr video points unavailable:", e);
-        return null;
+        return [];
     }
 }
 
@@ -103,9 +113,9 @@ export async function getSongsterrSong(songID: number): Promise<SongsterrSong> {
         throw new Error("Songsterr song has no revision");
     }
 
-    const [revision, video] = await Promise.all([
+    const [revision, videos] = await Promise.all([
         getRevision(revisionID),
-        getVideo(songID, revisionID),
+        getVideos(songID, revisionID),
     ]);
 
     return {
@@ -114,7 +124,7 @@ export async function getSongsterrSong(songID: number): Promise<SongsterrSong> {
         title: meta.title || "Unknown",
         artist: meta.artist || "",
         hasGp: typeof revision?.source === "string" && revision.source.length > 0,
-        video,
+        videos,
     };
 }
 
