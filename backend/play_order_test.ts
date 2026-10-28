@@ -1,7 +1,7 @@
 // "deno task test" to run this test
 
 import { assertEquals, assertThrows } from "jsr:@std/assert@^1.0.17";
-import { playOrder, RepeatInfo, toAdvancedSync } from "./play_order.ts";
+import { pickVideo, playOrder, RepeatInfo, toAdvancedSync } from "./play_order.ts";
 import { parseSongsterrSongID } from "./songsterr.ts";
 
 const bar = (o: Partial<RepeatInfo> = {}): RepeatInfo => ({ isRepeatStart: false, repeatCount: 0, alternateEndings: 0, ...o });
@@ -51,4 +51,31 @@ Deno.test("parseSongsterrSongID", () => {
     assertThrows(() => parseSongsterrSongID("https://example.com/a/wsa/foo-tab-s1"));
     assertThrows(() => parseSongsterrSongID("https://www.songsterr.com/"));
     assertThrows(() => parseSongsterrSongID("not a link"));
+});
+
+const video = (id: string, n: number, feature: string | null = "alternative") => ({ id, points: Array.from({ length: n }, (_, i) => i), feature });
+
+Deno.test("pickVideo - skips videos synced to a different bar count", () => {
+    // Songsterr 41082: the first video has 122 points, the score has 124 bars
+    const picked = pickVideo([video("cover", 122), video("backing", 124, "backing"), video("main", 124, null)], 124);
+    assertEquals(picked?.video.id, "main");
+    assertEquals(picked?.exact, true);
+});
+
+Deno.test("pickVideo - takes a cover when it is the only one that fits", () => {
+    assertEquals(pickVideo([video("main", 120, null), video("cover", 124)], 124)?.video.id, "cover");
+});
+
+Deno.test("pickVideo - accepts one extra end point", () => {
+    assertEquals(pickVideo([video("main", 125, null)], 124)?.exact, true);
+});
+
+Deno.test("pickVideo - falls back to the closest when none fits", () => {
+    const picked = pickVideo([video("far", 100, null), video("near", 122)], 124);
+    assertEquals(picked?.video.id, "near");
+    assertEquals(picked?.exact, false);
+});
+
+Deno.test("pickVideo - no videos", () => {
+    assertEquals(pickVideo([], 10), null);
 });
